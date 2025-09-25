@@ -33,18 +33,18 @@ $Properties = @{
     )
     Jobs = @(
         @{ name = 'jobId';           type = 'string';   objectfields = $null;        options = @('default','key') },
-        @{ name = 'beginDate';       type = 'datetime'; objectfields = $null;        options = @('default') },
-        @{ name = 'location';        type = 'object';   objectfields = 'locationId';  options = @('default') },
-        @{ name = 'endDate';         type = 'datetime'; objectfields = $null;        options = @('default') },
-        @{ name = 'personId';        type = 'parentObject';   objectfields = 'personId';     options = @('default') },
-        @{ name = 'position';        type = 'object';   objectfields = 'positionId';  options = @('default') },
-        @{ name = 'title';           type = 'string';   objectfields = $null;        options = @('default') }
+        @{ name = 'beginDate';       type = 'datetime'; objectfields = $null;        options = @('default','optional') },
+        @{ name = 'location';        type = 'object';   objectfields = 'locationId';  options = @('default','create_m','update_o') },
+        @{ name = 'endDate';         type = 'datetime'; objectfields = $null;        options = @('default','optional') },
+        @{ name = 'personId';        type = 'parentObject';   objectfields = 'personId';     options = @('default','create_m','update_m') },
+        @{ name = 'position';        type = 'object';   objectfields = 'positionId';  options = @('default','create_m','update_o') },
+        @{ name = 'title';           type = 'string';   objectfields = $null;        options = @('default','optional') }
     )
     Locations = @(
         @{ name = 'locationId';      type = 'string';   objectfields = $null;        options = @('default','key') },
-        @{ name = 'name';            type = 'string';   objectfields = $null;        options = @('default') },
-        @{ name = 'parent';          type = 'object';   objectfields = @('locationId');  options = @('default') },
-        @{ name = 'code';            type = 'string';   objectfields = $null;        options = @('default') }
+        @{ name = 'name';            type = 'string';   objectfields = $null;        options = @('default','create_m','update_o') },
+        @{ name = 'parent';          type = 'object';   objectfields = @('locationId');  options = @('default','create_o','update_o') },
+        @{ name = 'code';            type = 'string';   objectfields = $null;        options = @('default','create_o','update_o') }
     )
     People = @(
         @{ name = 'personId';        type = 'string';   objectfields = $null;        options = @('default','key') },
@@ -62,15 +62,15 @@ $Properties = @{
         @{ name = 'phone';           type = 'string';   objectfields = $null;        options = @('default','optional') },
         @{ name = 'postalCode';      type = 'string';   objectfields = $null;        options = @('default','optional') },
         @{ name = 'state';           type = 'string';   objectfields = $null;        options = @('default','optional') },
-        @{ name = 'isActive';        type = 'boolean';  objectfields = $null;        options = @('default','optional') },
+        @{ name = 'isActive';        type = 'boolean';  objectfields = $null;        options = @('default') },
         @{ name = 'password';        type = 'string';  objectfields = $null;        options = @('optional') },
         @{ name = 'jobs';            type = 'object';   objectfields = @('jobId','beginDate','endDate','title','location { locationId }','position { positionId }');        options = @('hidden') }
     )
     Positions = @(
         @{ name = 'positionId';      type = 'string';   objectfields = $null;        options = @('default','key') },
-        @{ name = 'code';            type = 'string';   objectfields = $null;        options = @('default') },
-        @{ name = 'name';            type = 'string';   objectfields = $null;        options = @('default') },
-        @{ name = 'parent';          type = 'object';   objectfields = @('positionId');  options = @('default') }
+        @{ name = 'code';            type = 'string';   objectfields = $null;        options = @('default','optional') },
+        @{ name = 'name';            type = 'string';   objectfields = $null;        options = @('default','create_m','update_o') },
+        @{ name = 'parent';          type = 'object';   objectfields = @('positionId');  options = @('default','optional') }
     )
     Progress = @(
         @{ name = 'progressId';      type = 'string';   objectfields = $null;        options = @('default','key') },
@@ -337,6 +337,167 @@ function Idm-JobsRead {
         $result
 }
 
+function Idm-JobCreate {
+    param (
+        # Operations
+        [switch] $GetMeta,
+        # Parameters
+        [string] $SystemParams,
+        [string] $FunctionParams
+    )
+
+    Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
+    $Class = 'Jobs'
+
+    if ($GetMeta) {
+        #
+        # Get meta data
+        #
+        @{
+            semantics = 'create'
+            parameters = @(
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('create_m') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('create_o') -or $_.options.Contains('optional') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'optional' }
+                }
+
+                $Global:Properties.$Class | Where-Object { !$_.options.Contains('create_m') -and !$_.options.Contains('create_o') -and !$_.options.Contains('optional') } | ForEach-Object {
+                    @{ name = $_.name; allowance = 'prohibited' }
+                }
+            )
+        }
+    }
+    else {
+        #
+        # Execute function
+        #
+        $system_params   = ConvertFrom-Json2 $SystemParams
+        $function_params = ConvertFrom-Json2 $FunctionParams
+        
+        $keyValue = $function_params['personId']
+        $mappedProperties = ''
+        foreach ($key in $function_params.Keys) {
+            if($key -eq 'personId') { continue } 
+
+            $column = if(@('location','position') -contains $key) { "$($key)Id"} else { $key }
+            
+            $value = $function_params[$key]
+            $escapedValue = $value.ToString().Replace('"', '\"')
+            $mappedProperties += " $($column): `"$($escapedValue)`""
+        }
+
+        $graphQLBody = @{ "query"= "mutation JobMutation { Person(personId: `"$($keyValue)`" ) { addJob ( $($mappedProperties) ) { jobId beginDate endDate title  } } }" }
+
+        $splat = @{
+            SystemParams = $system_params             
+            Body = ($graphQLBody | ConvertTo-Json)
+            Class = $Class
+            Mapping = $true
+        }
+        
+        $response = (Execute-Request @splat).data.Person.addJob
+
+        # Merge properties
+        $result = [PSCustomObject]@{
+            location = $function_params['location']
+            position = $function_params['position']
+            personId = $function_params['personId']
+        }
+
+        foreach ($prop in $response.PSObject.Properties) {
+            $result | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $prop.Value
+        }
+
+        LogIO info "JobCreate" -out $result
+        $result
+    }
+
+    Log verbose "Done"
+}
+
+function Idm-JobUpdate {
+    param (
+        # Operations
+        [switch] $GetMeta,
+        # Parameters
+        [string] $SystemParams,
+        [string] $FunctionParams
+    )
+
+    Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
+    $Class = 'Jobs'
+
+    if ($GetMeta) {
+        #
+        # Get meta data
+        #
+        @{
+            semantics = 'update'
+            parameters = @(
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_m') -or $_.options.Contains('key') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_o') -or $_.options.Contains('optional') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'optional' }
+                }
+
+                $Global:Properties.$Class | Where-Object { !$_.options.Contains('update_m') -and !$_.options.Contains('update_o') -and !$_.options.Contains('optional') -and !$_.options.Contains('key')  } | ForEach-Object {
+                    @{ name = $_.name; allowance = 'prohibited' }
+                }
+            )
+        }
+    }
+    else {
+        #
+        # Execute function
+        #
+        $system_params   = ConvertFrom-Json2 $SystemParams
+        $function_params = ConvertFrom-Json2 $FunctionParams
+        
+        $keyValue = $function_params['jobId']
+        $mappedProperties = ''
+        foreach ($key in $function_params.Keys) {
+            if($key -eq 'personId') { continue } 
+
+            $column = if(@('location','position') -contains $key) { "$($key)Id"} else { $key }
+            
+            $value = $function_params[$key]
+            $escapedValue = $value.ToString().Replace('"', '\"')
+            $mappedProperties += " $($column): `"$($escapedValue)`""
+        }
+
+        $graphQLBody = @{ "query"= "mutation JobMutation { Job(jobId: `"$($keyValue)`" ) { update ( $($mappedProperties) ) { jobId beginDate endDate title  } } }" }
+
+        $splat = @{
+            SystemParams = $system_params             
+            Body = ($graphQLBody | ConvertTo-Json)
+            Class = $Class
+            Mapping = $true
+        }
+        
+        $response = (Execute-Request @splat).data.Job.update
+        
+        # Merge properties
+        $result = [PSCustomObject]@{}
+
+        if($function_params['location'].length -gt 0) { $result | Add-Member -MemberType NoteProperty -Name 'location' -Value $function_params['location'] }
+        if($function_params['position'].length -gt 0) { $result | Add-Member -MemberType NoteProperty -Name 'position' -Value $function_params['position'] }
+
+        foreach ($prop in $response.PSObject.Properties) {
+            $result | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $prop.Value
+        }
+
+        LogIO info "JobUpdate" -out $result
+        $result
+    }
+
+    Log verbose "Done"
+}
+
 function Idm-LocationsRead {
     param (
         # Mode
@@ -392,6 +553,144 @@ function Idm-LocationsRead {
             $row
         }
         $result
+}
+
+function Idm-LocationCreate {
+    param (
+        # Operations
+        [switch] $GetMeta,
+        # Parameters
+        [string] $SystemParams,
+        [string] $FunctionParams
+    )
+
+    Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
+    $Class = 'Locations'
+
+    if ($GetMeta) {
+        #
+        # Get meta data
+        #
+        @{
+            semantics = 'create'
+            parameters = @(
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('create_m') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('create_o') -or $_.options.Contains('optional') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'optional' }
+                }
+
+                $Global:Properties.$Class | Where-Object { !$_.options.Contains('create_m') -and !$_.options.Contains('create_o') -and !$_.options.Contains('optional') } | ForEach-Object {
+                    @{ name = $_.name; allowance = 'prohibited' }
+                }
+            )
+        }
+    }
+    else {
+        #
+        # Execute function
+        #
+        $system_params   = ConvertFrom-Json2 $SystemParams
+        $function_params = ConvertFrom-Json2 $FunctionParams
+        
+        $mappedProperties = ''
+        foreach ($key in $function_params.Keys) {
+            $column = if($key -eq 'parent') { 'parentId' } else { $key }
+            $value = $function_params[$key]
+            $escapedValue = $value.ToString().Replace('"', '\"')
+            $mappedProperties += " $($column): `"$($escapedValue)`""
+        }
+
+        $graphQLBody = @{ "query"= "mutation add { addLocation( $($mappedProperties) ) { locationId name code } }" } 
+
+        $splat = @{
+            SystemParams = $system_params             
+            Body = ($graphQLBody | ConvertTo-Json)
+            Class = $Class
+            Mapping = $true
+        }
+        
+        $result = (Execute-Request @splat).data.addLocation
+        LogIO info "LocationCreate" -out $result
+        $result
+    }
+
+    Log verbose "Done"
+}
+
+function Idm-LocationUpdate {
+    param (
+        # Operations
+        [switch] $GetMeta,
+        # Parameters
+        [string] $SystemParams,
+        [string] $FunctionParams
+    )
+
+    Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
+    $Class = 'Locations'
+
+    if ($GetMeta) {
+        #
+        # Get meta data
+        #
+        @{
+            semantics = 'update'
+            parameters = @(
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_m') -or $_.options.Contains('key') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_o') -or $_.options.Contains('optional') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'optional' }
+                }
+
+                $Global:Properties.$Class | Where-Object { !$_.options.Contains('update_m') -and !$_.options.Contains('update_o') -and !$_.options.Contains('optional') -and !$_.options.Contains('key')  } | ForEach-Object {
+                    @{ name = $_.name; allowance = 'prohibited' }
+                }
+            )
+        }
+    }
+    else {
+        #
+        # Execute function
+        #
+        $system_params   = ConvertFrom-Json2 $SystemParams
+        $function_params = ConvertFrom-Json2 $FunctionParams
+        
+        $keyValue = $function_params['locationId']
+
+        $mappedProperties = ''
+
+        foreach ($key in $function_params.Keys) {
+            if(@('locationId') -contains $key) { continue }
+
+            $column = if($key -eq 'parent') { 'parentId' } else { $key }
+
+            $value = $function_params[$key]
+            $escapedValue = $value.ToString().Replace('"', '\"')
+            $mappedProperties += " $($column): `"$($escapedValue)`""
+        }
+
+        if($mappedProperties.length -lt 1) { break }
+
+        $graphQLBody = @{ "query"= "mutation LocationMutation { Location(locationId: `"$($keyValue)`") { update ( $($mappedProperties) ) { locationId name code } } }" } 
+
+        $splat = @{
+            SystemParams = $system_params             
+            Body = ($graphQLBody | ConvertTo-Json)
+            Class = $Class
+            Mapping = $true
+        }
+        
+        $result = (Execute-Request @splat).data.Location.update
+        LogIO info "LocationUpdate" -out $result
+        $result
+    }
+
+    Log verbose "Done"
 }
 
 function Idm-PeoplesRead {
@@ -503,7 +802,9 @@ function Idm-PeopleCreate {
             Mapping = $true
         }
         
-        (Execute-Request @splat).data.addPerson
+        $result = (Execute-Request @splat).data.addPerson
+        LogIO info "PeopleCreate" -out $result
+        $result
     }
 
     Log verbose "Done"
@@ -519,7 +820,7 @@ function Idm-PeopleUpdate {
     )
 
     Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
-    $Class = 'People'
+    $Class = 'Locations'
 
     if ($GetMeta) {
         #
@@ -549,32 +850,13 @@ function Idm-PeopleUpdate {
         $system_params   = ConvertFrom-Json2 $SystemParams
         $function_params = ConvertFrom-Json2 $FunctionParams
         
-        $keyValue = $function_params['personId']
+        $keyValue = $function_params['locationId']
 
-        # CHange Password
-        if($function_params['password'].length -gt 0) {    
-            Log verbose "Update password [$($keyValue)]"
-
-            $password = $function_params['password'].ToString().Replace('"', '\"')
-
-            $graphQLBody = @{ "query"= "mutation PersonMutation { Person(personId: `"$($keyValue)`") { changePassword ( password: `"$($password)`" ) { personId } } }" } 
-
-            $splat = @{
-                SystemParams = $system_params             
-                Body = ($graphQLBody | ConvertTo-Json)
-                Class = $Class
-                Mapping = $true
-            }
-            
-            Execute-Request @splat | Out-Null
-        }
-
-        # Update Person
         $mappedProperties = ''
         $mappedColumns = ''
 
         foreach ($key in $function_params.Keys) {
-            if(@('personId','password') -contains $key) { continue }
+            if(@('locationId','password') -contains $key) { continue }
 
             $value = $function_params[$key]
             $escapedValue = $value.ToString().Replace('"', '\"')
@@ -584,7 +866,7 @@ function Idm-PeopleUpdate {
 
         if($mappedColumns.length -lt 1) { break }
 
-        $graphQLBody = @{ "query"= "mutation PersonMutation { Person(personId: `"$($keyValue)`") { update ( $($mappedProperties) ) { $($mappedColumns) } } }" } 
+        $graphQLBody = @{ "query"= "mutation LocationMutation { Person(locationId: `"$($keyValue)`") { update ( $($mappedProperties) ) { $($mappedColumns) } } }" } 
 
         $splat = @{
             SystemParams = $system_params             
@@ -593,11 +875,67 @@ function Idm-PeopleUpdate {
             Mapping = $true
         }
         
-        (Execute-Request @splat).data.Person.update
+        $result = (Execute-Request @splat).data.Location.update
+        LogIO info "PeopleUpdate" -out $result
+        $result
     }
 
     Log verbose "Done"
 }
+
+function Idm-PeopleDeactivate {
+    param (
+        # Operations
+        [switch] $GetMeta,
+        # Parameters
+        [string] $SystemParams,
+        [string] $FunctionParams
+    )
+
+    Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
+    $Class = 'People'
+
+    if ($GetMeta) {
+        #
+        # Get meta data
+        #
+        @{
+            parameters = @(
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('key') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                $Global:Properties.$Class | Where-Object { !$_.options.Contains('key')  } | ForEach-Object {
+                    @{ name = $_.name; allowance = 'prohibited' }
+                }
+            )
+        }
+    }
+    else {
+        #
+        # Execute function
+        #
+        $system_params   = ConvertFrom-Json2 $SystemParams
+        $function_params = ConvertFrom-Json2 $FunctionParams
+        
+        $keyValue = $function_params['personId']
+
+
+        $graphQLBody = @{ "query"= "mutation DeactivatepersonMutation { Person(personId: `"$($keyValue)`") { deactivate { personId isActive } } }" } 
+
+        $splat = @{
+            SystemParams = $system_params             
+            Body = ($graphQLBody | ConvertTo-Json)
+            Class = $Class
+            Mapping = $true
+        }
+        
+        (Execute-Request @splat).data.Person.deactivate
+    }
+
+    Log verbose "Done"
+}
+
 function Idm-PositionsRead {
     param (
         # Mode
@@ -652,6 +990,143 @@ function Idm-PositionsRead {
             $row
         }
         $result
+}
+
+function Idm-PositionCreate {
+    param (
+        # Operations
+        [switch] $GetMeta,
+        # Parameters
+        [string] $SystemParams,
+        [string] $FunctionParams
+    )
+
+    Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
+    $Class = 'Positions'
+
+    if ($GetMeta) {
+        #
+        # Get meta data
+        #
+        @{
+            semantics = 'create'
+            parameters = @(
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('create_m') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('create_o') -or $_.options.Contains('optional') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'optional' }
+                }
+
+                $Global:Properties.$Class | Where-Object { !$_.options.Contains('create_m') -and !$_.options.Contains('create_o') -and !$_.options.Contains('optional') } | ForEach-Object {
+                    @{ name = $_.name; allowance = 'prohibited' }
+                }
+            )
+        }
+    }
+    else {
+        #
+        # Execute function
+        #
+        $system_params   = ConvertFrom-Json2 $SystemParams
+        $function_params = ConvertFrom-Json2 $FunctionParams
+        
+        $mappedProperties = ''
+        foreach ($key in $function_params.Keys) {
+            $column = if($key -eq 'parent') { 'parentId' } else { $key }
+            $value = $function_params[$key]
+            $escapedValue = $value.ToString().Replace('"', '\"')
+            $mappedProperties += " $($column): `"$($escapedValue)`""
+        }
+
+        $graphQLBody = @{ "query"= "mutation add { addPosition( $($mappedProperties) ) { positionId name code } }" } 
+
+        $splat = @{
+            SystemParams = $system_params             
+            Body = ($graphQLBody | ConvertTo-Json)
+            Class = $Class
+            Mapping = $true
+        }
+        
+        $result = (Execute-Request @splat).data.addPosition
+        LogIO info "PositionCreate" -out $result
+        $result
+    }
+
+    Log verbose "Done"
+}
+
+function Idm-PositionUpdate {
+    param (
+        # Operations
+        [switch] $GetMeta,
+        # Parameters
+        [string] $SystemParams,
+        [string] $FunctionParams
+    )
+
+    Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
+    $Class = 'Positions'
+
+    if ($GetMeta) {
+        #
+        # Get meta data
+        #
+        @{
+            semantics = 'update'
+            parameters = @(
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_m') -or $_.options.Contains('key') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_o') -or $_.options.Contains('optional') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'optional' }
+                }
+
+                $Global:Properties.$Class | Where-Object { !$_.options.Contains('update_m') -and !$_.options.Contains('update_o') -and !$_.options.Contains('optional') -and !$_.options.Contains('key')  } | ForEach-Object {
+                    @{ name = $_.name; allowance = 'prohibited' }
+                }
+            )
+        }
+    }
+    else {
+        #
+        # Execute function
+        #
+        $system_params   = ConvertFrom-Json2 $SystemParams
+        $function_params = ConvertFrom-Json2 $FunctionParams
+        
+        $keyValue = $function_params['positionId']
+
+        $mappedProperties = ''
+
+        foreach ($key in $function_params.Keys) {
+            if(@('positionId') -contains $key) { continue }
+            
+            $column = if($key -eq 'parent') { 'parentId' } else { $key }
+            $value = $function_params[$key]
+            $escapedValue = $value.ToString().Replace('"', '\"')
+            $mappedProperties += " $($column): `"$($escapedValue)`""
+        }
+
+        if($mappedProperties.length -lt 1) { break }
+
+        $graphQLBody = @{ "query"= "mutation PositionMutation { Position(positionId: `"$($keyValue)`") { update ( $($mappedProperties) ) { positionId name code } } }" } 
+
+        $splat = @{
+            SystemParams = $system_params             
+            Body = ($graphQLBody | ConvertTo-Json)
+            Class = $Class
+            Mapping = $true
+        }
+        
+        $result = (Execute-Request @splat).data.Position.update
+        LogIO info "PositionUpdate" -out $result
+        $result
+    }
+
+    Log verbose "Done"
 }
 
 <#
@@ -858,7 +1333,14 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
         do {
             try {
                 $attemptSuffix = if ($attempt -gt 0) { " (Attempt $($attempt + 1))" } else { "" }
-                Log verbose "$($splat.Method) Call: $($splat.Uri)$($attemptSuffix) [$($Class), first: $($firstValue), after: $($afterValue)]"
+                
+                $baseMessage = "$($splat.Method) Call: $($splat.Uri)$($attemptSuffix) [$($Class)"
+                if (-not $Mapping) {
+                    $baseMessage += ", first: $($firstValue), after: $($afterValue)"
+                }
+                $baseMessage += "]"
+                Log verbose $baseMessage
+
                 $response = Invoke-RestMethod @splat -ErrorAction Stop
 
                 if($response.errors.count -gt 0) {
