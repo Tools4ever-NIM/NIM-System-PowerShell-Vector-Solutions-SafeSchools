@@ -2,7 +2,7 @@
 # Vector Solutions SafeSchools.ps1 - Vector Solution SafeSchools
 #
 $Log_MaskableKeys = @(
-    'Password',
+    'password',
     "proxy_password",
     "clientsecret"
 )
@@ -58,11 +58,12 @@ $Properties = @{
         @{ name = 'city';            type = 'string';   objectfields = $null;        options = @('default','optional') },
         @{ name = 'country';         type = 'string';   objectfields = $null;        options = @('default','optional') },
         @{ name = 'email';           type = 'string';   objectfields = $null;        options = @('default','create_m','update_o') },
-        @{ name = 'middle';          type = 'string';   objectfields = $null;        options = @('default'),'optional' },
+        @{ name = 'middle';          type = 'string';   objectfields = $null;        options = @('default','optional') },
         @{ name = 'phone';           type = 'string';   objectfields = $null;        options = @('default','optional') },
         @{ name = 'postalCode';      type = 'string';   objectfields = $null;        options = @('default','optional') },
         @{ name = 'state';           type = 'string';   objectfields = $null;        options = @('default','optional') },
-        @{ name = 'isActive';        type = 'boolean';  objectfields = $null;        options = @('default','optional') }
+        @{ name = 'isActive';        type = 'boolean';  objectfields = $null;        options = @('default','optional') },
+        @{ name = 'password';        type = 'string';  objectfields = $null;        options = @('optional') },
         @{ name = 'jobs';            type = 'object';   objectfields = @('jobId','beginDate','endDate','title','location { locationId }','position { positionId }');        options = @('hidden') }
     )
     Positions = @(
@@ -462,11 +463,15 @@ function Idm-PeopleCreate {
         #
         # Get meta data
         #
-        $test = @{
+        @{
             semantics = 'create'
             parameters = @(
                 ($Global:Properties.$Class | Where-Object { $_.options.Contains('create_m') }) | ForEach-Object {
                     @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('create_o') -or $_.options.Contains('optional') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'optional' }
                 }
 
                 $Global:Properties.$Class | Where-Object { !$_.options.Contains('create_m') -and !$_.options.Contains('create_o') -and !$_.options.Contains('optional') } | ForEach-Object {
@@ -474,9 +479,6 @@ function Idm-PeopleCreate {
                 }
             )
         }
-        log info ($test | ConvertTo-Json)
-
-        $test
     }
     else {
         #
@@ -523,11 +525,15 @@ function Idm-PeopleUpdate {
         #
         # Get meta data
         #
-        $test = @{
+        @{
             semantics = 'update'
             parameters = @(
                 ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_m') -or $_.options.Contains('key') }) | ForEach-Object {
                     @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_o') -or $_.options.Contains('optional') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'optional' }
                 }
 
                 $Global:Properties.$Class | Where-Object { !$_.options.Contains('update_m') -and !$_.options.Contains('update_o') -and !$_.options.Contains('optional') -and !$_.options.Contains('key')  } | ForEach-Object {
@@ -535,9 +541,6 @@ function Idm-PeopleUpdate {
                 }
             )
         }
-        log info ($test | ConvertTo-Json)
-
-        $test
     }
     else {
         #
@@ -546,12 +549,32 @@ function Idm-PeopleUpdate {
         $system_params   = ConvertFrom-Json2 $SystemParams
         $function_params = ConvertFrom-Json2 $FunctionParams
         
+        $keyValue = $function_params['personId']
+
+        # CHange Password
+        if($function_params['password'].length -gt 0) {    
+            Log verbose "Update password [$($keyValue)]"
+
+            $password = $function_params['password'].ToString().Replace('"', '\"')
+
+            $graphQLBody = @{ "query"= "mutation PersonMutation { Person(personId: `"$($keyValue)`") { changePassword ( password: `"$($password)`" ) { personId } } }" } 
+
+            $splat = @{
+                SystemParams = $system_params             
+                Body = ($graphQLBody | ConvertTo-Json)
+                Class = $Class
+                Mapping = $true
+            }
+            
+            Execute-Request @splat | Out-Null
+        }
+
+        # Update Person
         $mappedProperties = ''
         $mappedColumns = ''
-        $key = $function_params['personId']
 
         foreach ($key in $function_params.Keys) {
-            if($key -eq 'personId') { continue }
+            if(@('personId','password') -contains $key) { continue }
 
             $value = $function_params[$key]
             $escapedValue = $value.ToString().Replace('"', '\"')
@@ -559,7 +582,9 @@ function Idm-PeopleUpdate {
             $mappedColumns += " $($key)"
         }
 
-        $graphQLBody = @{ "query"= "mutation PersonMutation { Person(personId: `"$($key)`") { update ( $($mappedProperties) ) { $($mappedColumns) } }" } 
+        if($mappedColumns.length -lt 1) { break }
+
+        $graphQLBody = @{ "query"= "mutation PersonMutation { Person(personId: `"$($keyValue)`") { update ( $($mappedProperties) ) { $($mappedColumns) } } }" } 
 
         $splat = @{
             SystemParams = $system_params             
@@ -573,7 +598,6 @@ function Idm-PeopleUpdate {
 
     Log verbose "Done"
 }
-
 function Idm-PositionsRead {
     param (
         # Mode
@@ -841,6 +865,11 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
                     foreach($item in $response.errors) {
                         Log error "$($item | ConvertTo-Json)"
                     }
+                    throw "Query result returned with errors"
+                }
+
+                if($response.message.length -gt 0) {
+                    Log error "$($response | ConvertTo-Json)"
                     throw "Query result returned with errors"
                 }
                 break
