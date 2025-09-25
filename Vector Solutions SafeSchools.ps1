@@ -302,7 +302,7 @@ function Idm-JobsRead {
 
         # Refresh cache if needed
         if ($Global:People.Count -eq 0 -or ((Get-Date) - $Global:PeopleCacheTime).TotalMinutes -gt 5) {
-            Idm-PeopleRead -SystemParams $SystemParams -FunctionParams $FunctionParams | Out-Null
+            Idm-PeoplesRead -SystemParams $SystemParams -FunctionParams $FunctionParams | Out-Null
         }
 
         # Precompute property template
@@ -393,7 +393,7 @@ function Idm-LocationsRead {
         $result
 }
 
-function Idm-PeopleRead {
+function Idm-PeoplesRead {
     param (
         # Mode
         [switch] $GetMeta,    
@@ -455,7 +455,7 @@ function Idm-PeopleCreate {
         [string] $FunctionParams
     )
 
-    Log info "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
+    Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
     $Class = 'People'
 
     if ($GetMeta) {
@@ -484,23 +484,95 @@ function Idm-PeopleCreate {
         #
         $system_params   = ConvertFrom-Json2 $SystemParams
         $function_params = ConvertFrom-Json2 $FunctionParams
-
-        $uri = "https://$($system_params.hostname)/api/1.1/json/users/"
-
-        $splat = @{
-            SystemParams = $system_params
-            Method = "POST"
-            Uri = $uri                    
-            Body = ($function_params | ConvertTo-Json)
+        
+        $mappedProperties = ''
+        foreach ($key in $function_params.Keys) {
+            $value = $function_params[$key]
+            $escapedValue = $value.ToString().Replace('"', '\"')
+            $mappedProperties += " $($key): `"$($escapedValue)`""
         }
 
-        Execute-Request @splat
+        $graphQLBody = @{ "query"= "mutation add { addPerson( $($mappedProperties) ) { username personId first last middle email isActive } }" } 
 
+        $splat = @{
+            SystemParams = $system_params             
+            Body = ($graphQLBody | ConvertTo-Json)
+            Class = $Class
+            Mapping = $true
+        }
+        
+        (Execute-Request @splat).data.addPerson
     }
 
-    Log info "Done"
+    Log verbose "Done"
 }
 
+function Idm-PeopleUpdate {
+    param (
+        # Operations
+        [switch] $GetMeta,
+        # Parameters
+        [string] $SystemParams,
+        [string] $FunctionParams
+    )
+
+    Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
+    $Class = 'People'
+
+    if ($GetMeta) {
+        #
+        # Get meta data
+        #
+        $test = @{
+            semantics = 'update'
+            parameters = @(
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_m') -or $_.options.Contains('key') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                $Global:Properties.$Class | Where-Object { !$_.options.Contains('update_m') -and !$_.options.Contains('update_o') -and !$_.options.Contains('optional') -and !$_.options.Contains('key')  } | ForEach-Object {
+                    @{ name = $_.name; allowance = 'prohibited' }
+                }
+            )
+        }
+        log info ($test | ConvertTo-Json)
+
+        $test
+    }
+    else {
+        #
+        # Execute function
+        #
+        $system_params   = ConvertFrom-Json2 $SystemParams
+        $function_params = ConvertFrom-Json2 $FunctionParams
+        
+        $mappedProperties = ''
+        $mappedColumns = ''
+        $key = $function_params['personId']
+
+        foreach ($key in $function_params.Keys) {
+            if($key -eq 'personId') { continue }
+
+            $value = $function_params[$key]
+            $escapedValue = $value.ToString().Replace('"', '\"')
+            $mappedProperties += " $($key): `"$($escapedValue)`""
+            $mappedColumns += " $($key)"
+        }
+
+        $graphQLBody = @{ "query"= "mutation PersonMutation { Person(personId: `"$($key)`") { update ( $($mappedProperties) ) { $($mappedColumns) } }" } 
+
+        $splat = @{
+            SystemParams = $system_params             
+            Body = ($graphQLBody | ConvertTo-Json)
+            Class = $Class
+            Mapping = $true
+        }
+        
+        (Execute-Request @splat).data.Person.update
+    }
+
+    Log verbose "Done"
+}
 
 function Idm-PositionsRead {
     param (
@@ -700,7 +772,8 @@ function Execute-Request {
     param (
         [hashtable] $SystemParams,
         [string] $Body,
-        [string] $Class
+        [string] $Class,
+        [boolean] $Mapping = $false
     )
     # Get authorization token
     $authToken = Execute-AuthorizationRequest -SystemParams $SystemParams
@@ -714,7 +787,7 @@ function Execute-Request {
         }
         Method = "POST"
         Uri = "https://$($SystemParams.hostname)/graphql"
-        Body = $Body -replace '\{0\}', "first: $($SystemParams.pageSize)"
+        Body = if($Mapping) { $Body } else { $Body -replace '\{0\}', "first: $($SystemParams.pageSize)" }
     }
 
     # Configure proxy if enabled
@@ -787,6 +860,10 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
                 }
             }
         } while ($true)
+
+        if($Mapping) {
+            return $response
+        }
 
         # Collect results
         $results.AddRange(@() + $response.data.$Class.nodes)
