@@ -33,12 +33,12 @@ $Properties = @{
     )
     Jobs = @(
         @{ name = 'jobId';           type = 'string';   objectfields = $null;        options = @('default','key') },
-        @{ name = 'beginDate';       type = 'datetime'; objectfields = $null;        options = @('default','optional') },
-        @{ name = 'location';        type = 'object';   objectfields = 'locationId';  options = @('default','create_m','update_o') },
-        @{ name = 'endDate';         type = 'datetime'; objectfields = $null;        options = @('default','optional') },
-        @{ name = 'personId';        type = 'parentObject';   objectfields = 'personId';     options = @('default','create_m','update_m') },
-        @{ name = 'position';        type = 'object';   objectfields = 'positionId';  options = @('default','create_m','update_o') },
-        @{ name = 'title';           type = 'string';   objectfields = $null;        options = @('default','optional') }
+        @{ name = 'beginDate';       type = 'datetime'; objectfields = $null;        options = @('default') },
+        @{ name = 'location';        type = 'object';   objectfields = 'locationId';  options = @('default','create_m') },
+        @{ name = 'endDate';         type = 'datetime'; objectfields = $null;        options = @('default') },
+        @{ name = 'personId';        type = 'parentObject';   objectfields = 'personId';     options = @('default','create_m') },
+        @{ name = 'position';        type = 'object';   objectfields = 'positionId';  options = @('default','create_m') },
+        @{ name = 'title';           type = 'string';   objectfields = $null;        options = @('default') }
     )
     Locations = @(
         @{ name = 'locationId';      type = 'string';   objectfields = $null;        options = @('default','key') },
@@ -418,7 +418,7 @@ function Idm-JobCreate {
     Log verbose "Done"
 }
 
-function Idm-JobUpdate {
+function Idm-JobDeactivate {
     param (
         # Operations
         [switch] $GetMeta,
@@ -820,7 +820,7 @@ function Idm-PeopleUpdate {
     )
 
     Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
-    $Class = 'Locations'
+    $Class = 'People'
 
     if ($GetMeta) {
         #
@@ -850,13 +850,13 @@ function Idm-PeopleUpdate {
         $system_params   = ConvertFrom-Json2 $SystemParams
         $function_params = ConvertFrom-Json2 $FunctionParams
         
-        $keyValue = $function_params['locationId']
+        $keyValue = $function_params['personId']
 
         $mappedProperties = ''
         $mappedColumns = ''
 
         foreach ($key in $function_params.Keys) {
-            if(@('locationId','password') -contains $key) { continue }
+            if(@('personId','password') -contains $key) { continue }
 
             $value = $function_params[$key]
             $escapedValue = $value.ToString().Replace('"', '\"')
@@ -866,7 +866,7 @@ function Idm-PeopleUpdate {
 
         if($mappedColumns.length -lt 1) { break }
 
-        $graphQLBody = @{ "query"= "mutation LocationMutation { Person(locationId: `"$($keyValue)`") { update ( $($mappedProperties) ) { $($mappedColumns) } } }" } 
+        $graphQLBody = @{ "query"= "mutation PersonMutation { Person(personId: `"$($keyValue)`") { update ( $($mappedProperties) ) { $($mappedColumns) } } }" } 
 
         $splat = @{
             SystemParams = $system_params             
@@ -875,7 +875,7 @@ function Idm-PeopleUpdate {
             Mapping = $true
         }
         
-        $result = (Execute-Request @splat).data.Location.update
+        $result = (Execute-Request @splat).data.Person.update
         LogIO info "PeopleUpdate" -out $result
         $result
     }
