@@ -1360,7 +1360,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
                 if($errorBreak) { throw}
                 
                 $statusCode = $_.Exception.Response.StatusCode.value__
-                if ($statusCode -eq 429 -and $attempt -lt $SystemParams.nr_of_retries) {
+                if ($statusCode -in @(429,500,502,503,504,507) -and $attempt -lt $SystemParams.nr_of_retries) {
                     $attempt++
                     Log warning "Received $statusCode. Retrying in $retryDelay seconds..."
                     Start-Sleep -Seconds $retryDelay
