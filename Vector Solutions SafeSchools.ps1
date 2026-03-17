@@ -33,9 +33,9 @@ $Properties = @{
     )
     Jobs = @(
         @{ name = 'jobId';           type = 'string';   objectfields = $null;        options = @('default','key') },
-        @{ name = 'beginDate';       type = 'datetime'; objectfields = $null;        options = @('default') },
+        @{ name = 'beginDate';       type = 'datetime'; objectfields = $null;        options = @('default',"create_o") },
         @{ name = 'location';        type = 'object';   objectfields = 'locationId';  options = @('default','create_m') },
-        @{ name = 'endDate';         type = 'datetime'; objectfields = $null;        options = @('default') },
+        @{ name = 'endDate';         type = 'datetime'; objectfields = $null;        options = @('default',"create_o") },
         @{ name = 'personId';        type = 'parentObject';   objectfields = 'personId';     options = @('default','create_m') },
         @{ name = 'position';        type = 'object';   objectfields = 'positionId';  options = @('default','create_m') },
         @{ name = 'title';           type = 'string';   objectfields = $null;        options = @('default') }
