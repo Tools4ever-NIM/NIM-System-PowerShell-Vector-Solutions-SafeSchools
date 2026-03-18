@@ -1,3 +1,4 @@
+# version: 1.2.1
 #
 # Vector Solutions SafeSchools.ps1 - Vector Solution SafeSchools
 #
@@ -33,12 +34,12 @@ $Properties = @{
     )
     Jobs = @(
         @{ name = 'jobId';           type = 'string';   objectfields = $null;        options = @('default','key') },
-        @{ name = 'beginDate';       type = 'datetime'; objectfields = $null;        options = @('default',"create_o") },
+        @{ name = 'beginDate';       type = 'datetime'; objectfields = $null;        options = @('default',"create_o","update_o") },
         @{ name = 'location';        type = 'object';   objectfields = 'locationId';  options = @('default','create_m') },
-        @{ name = 'endDate';         type = 'datetime'; objectfields = $null;        options = @('default',"create_o") },
+        @{ name = 'endDate';         type = 'datetime'; objectfields = $null;        options = @('default',"create_o","update_o") },
         @{ name = 'personId';        type = 'parentObject';   objectfields = 'personId';     options = @('default','create_m') },
         @{ name = 'position';        type = 'object';   objectfields = 'positionId';  options = @('default','create_m') },
-        @{ name = 'title';           type = 'string';   objectfields = $null;        options = @('default') }
+        @{ name = 'title';           type = 'string';   objectfields = $null;        options = @('default',"update_o") }
     )
     Locations = @(
         @{ name = 'locationId';      type = 'string';   objectfields = $null;        options = @('default','key') },
@@ -412,6 +413,86 @@ function Idm-JobCreate {
         }
 
         LogIO info "JobCreate" -out $result
+        $result
+    }
+
+    Log verbose "Done"
+}
+
+function Idm-JobUpdate {
+    param (
+        # Operations
+        [switch] $GetMeta,
+        # Parameters
+        [string] $SystemParams,
+        [string] $FunctionParams
+    )
+
+    Log verbose "-GetMeta=$GetMeta -SystemParams='$SystemParams' -FunctionParams='$FunctionParams'"
+    $Class = 'Jobs'
+
+    if ($GetMeta) {
+        #
+        # Get meta data
+        #
+        @{
+            semantics = 'update'
+            parameters = @(
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_m') -or $_.options.Contains('key') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'mandatory' }
+                }
+
+                ($Global:Properties.$Class | Where-Object { $_.options.Contains('update_o') -or $_.options.Contains('optional') }) | ForEach-Object {
+                    @{ name = $_.name;  allowance = 'optional' }
+                }
+
+                $Global:Properties.$Class | Where-Object { !$_.options.Contains('update_m') -and !$_.options.Contains('update_o') -and !$_.options.Contains('optional') -and !$_.options.Contains('key')  } | ForEach-Object {
+                    @{ name = $_.name; allowance = 'prohibited' }
+                }
+            )
+        }
+    }
+    else {
+        #
+        # Execute function
+        #
+        $system_params   = ConvertFrom-Json2 $SystemParams
+        $function_params = ConvertFrom-Json2 $FunctionParams
+        
+        $keyValue = $function_params['jobId']
+        $mappedProperties = ''
+        foreach ($key in $function_params.Keys) {
+            if($key -eq 'personId') { continue } 
+
+            $column = if(@('location','position') -contains $key) { "$($key)Id"} else { $key }
+            
+            $value = $function_params[$key]
+            $escapedValue = $value.ToString().Replace('"', '\"')
+            $mappedProperties += " $($column): `"$($escapedValue)`""
+        }
+
+        $graphQLBody = @{ "query"= "mutation JobMutation { Job(jobId: `"$($keyValue)`" ) { update( $($mappedProperties) ) { jobId beginDate endDate title  } } }" }
+
+        $splat = @{
+            SystemParams = $system_params             
+            Body = ($graphQLBody | ConvertTo-Json)
+            Class = $Class
+            Mapping = $true
+        }
+        
+        $response = (Execute-Request @splat).data.Job.update
+        
+        # Merge properties
+        $result = [PSCustomObject]@{}
+
+        if($function_params['location'].length -gt 0) { $result | Add-Member -MemberType NoteProperty -Name 'location' -Value $function_params['location'] }
+        if($function_params['position'].length -gt 0) { $result | Add-Member -MemberType NoteProperty -Name 'position' -Value $function_params['position'] }
+
+        foreach ($prop in $response.PSObject.Properties) {
+            $result | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $prop.Value
+        }
+
+        LogIO info "JobUpdate" -out $result
         $result
     }
 
