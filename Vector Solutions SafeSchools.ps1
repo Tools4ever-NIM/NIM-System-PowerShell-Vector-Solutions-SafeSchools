@@ -1,4 +1,5 @@
-# version: 1.2.1
+# version: 1.2.2
+
 #
 # Vector Solutions SafeSchools.ps1 - Vector Solution SafeSchools
 #
@@ -253,6 +254,7 @@ function Idm-CourseInfosRead {
             SystemParams = $system_params             
             Body = ($graphQLBody | ConvertTo-Json)
             Class = $Class
+			ErrorWarnings = $true
         }
         
         $response = Execute-Request @splat
@@ -551,7 +553,7 @@ function Idm-JobDeactivate {
             $mappedProperties += " $($column): `"$($escapedValue)`""
         }
 
-        $graphQLBody = @{ "query"= "mutation JobMutation { Job(jobId: `"$($keyValue)`" ) { update ( $($mappedProperties) ) { jobId beginDate endDate title  } } }" }
+        $graphQLBody = @{ "query"= "mutation JobMutation { Job(jobId: `"$($keyValue)`" ) { deactivate { jobId beginDate endDate title  } } }" }
 
         $splat = @{
             SystemParams = $system_params             
@@ -1353,7 +1355,8 @@ function Execute-Request {
         [hashtable] $SystemParams,
         [string] $Body,
         [string] $Class,
-        [boolean] $Mapping = $false
+        [boolean] $Mapping = $false,
+		[boolean] $ErrorWarnings = $false
     )
     # Get authorization token
     $authToken = Execute-AuthorizationRequest -SystemParams $SystemParams
@@ -1425,15 +1428,25 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
                 $response = Invoke-RestMethod @splat -ErrorAction Stop
 
                 if($response.errors.count -gt 0) {
-                    foreach($item in $response.errors) {
-                        Log error "$($item | ConvertTo-Json)"
-                    }
-                    throw "Query result returned with errors"
+					if($ErrorWarnings) {
+						foreach($item in $response.errors) {
+							Log warning "$($item | ConvertTo-Json)"
+						}
+					} else {
+						foreach($item in $response.errors) {
+							Log error "$($item | ConvertTo-Json)"
+						}
+						throw "Query result returned with errors"
+					}
                 }
 
                 if($response.message.length -gt 0) {
-                    Log error "$($response | ConvertTo-Json)"
-                    throw "Query result returned with errors"
+					if($ErrorWarnings) {
+						Log warning "$($response | ConvertTo-Json)"
+					} else {
+						Log error "$($response | ConvertTo-Json)"
+						throw "Query result returned with errors"
+					}
                 }
                 break
             }
