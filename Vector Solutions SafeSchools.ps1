@@ -1,5 +1,3 @@
-# version: 1.2.2
-
 #
 # Vector Solutions SafeSchools.ps1 - Vector Solution SafeSchools
 #
