@@ -1,5 +1,7 @@
 # Vector Solutions SafeSchools
 
+Read the [Vector Solutions SafeSchools integration documentation](https://docs.nimsuite.com/en/integrations/targetsolutions--aka-vectorsolutions-) for connector details and related guides.
+
 <img src="https://github.com/user-attachments/assets/2e6122bd-8f3a-4e61-928d-86d1bc63f300" width="256px">
 
 # Data Tables
